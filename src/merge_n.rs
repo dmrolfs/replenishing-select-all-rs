@@ -63,50 +63,55 @@ where
     async fn run(&mut self) {
         let mut active_inlets = self.initialize_active_inlets().await;
         let outlet = &self.outlet;
+        let inlets = self.inlets.clone();
 
         while !active_inlets.is_empty() {
             let available_inlets = active_inlets;
             tracing::info!(nr_available_inlets=%available_inlets.len(), "1.selecting from active inlets");
 
-            let ((inlet_idx, value), target_idx, mut remaining_inlets) = future::select_all(available_inlets).await;
-            let is_active = value.is_some();
+            tokio::select! {
+                ((inlet_idx, value), target_idx, remaining) = future::select_all(available_inlets) => {
+                    let mut remaining_inlets = remaining;
+                    let is_active = value.is_some();
 
-            let handle_target_span = tracing::info_span!(
-                "2.handle selected recv item",
-                ?value,
-                %is_active,
-                %inlet_idx,
-                %target_idx,
-                nr_remaining=%remaining_inlets.len(),
-            );
-            let _handle_target_guard = handle_target_span.enter();
+                    let handle_target_span = tracing::info_span!(
+                        "2.handle selected recv item",
+                        ?value,
+                        %is_active,
+                        %inlet_idx,
+                        %target_idx,
+                        nr_remaining=%remaining_inlets.len(),
+                    );
+                    let _handle_target_guard = handle_target_span.enter();
 
-            if let Some(item) = value {
-                let send_active_span = tracing::info_span!("3.send item to outlet", ?item);
-                let _send_active_guard = send_active_span.enter();
+                    if let Some(item) = value {
+                        let send_active_span = tracing::info_span!("3.send item to outlet", ?item);
+                        let _send_active_guard = send_active_span.enter();
 
-                outlet.send(item).await.expect("failed to send to outlet");
+                        outlet.send(item).await.expect("failed to send to outlet");
+                    }
+
+                    tracing::info!(nr_remaining=%remaining_inlets.len(), %is_active, "after send");
+
+                    if is_active {
+                        let run_active_span = tracing::info_span!(
+                            "4.replenish active inlets",
+                            nr_available_inlets=%remaining_inlets.len()
+                        );
+                        let _run_active_guard = run_active_span.enter();
+
+                        if let Some(inlet) = inlets.lock().await.get(inlet_idx) {
+                            let rep = MergeN::replenish_inlet_recv(inlet_idx, inlet.clone()).boxed();
+                            remaining_inlets.push(rep);
+                            // remaining_targets.insert(idx, rep);
+                            tracing::info!(nr_available_inlets=%remaining_inlets.len(), "4.1.active_inlets replenished.");
+                        }
+                    }
+
+                    active_inlets = remaining_inlets;
+                    tracing::info!(nr_remaining=%active_inlets.len(), %is_active, ">>>> loop bottom <<<<");
+                },
             }
-
-            tracing::info!(nr_remaining=%remaining_inlets.len(), %is_active, "after send");
-
-            if is_active {
-                let run_active_span = tracing::info_span!(
-                    "4.replenish active inlets",
-                    nr_available_inlets=%remaining_inlets.len()
-                );
-                let _run_active_guard = run_active_span.enter();
-
-                if let Some(inlet) = self.inlets.lock().await.get(inlet_idx) {
-                    let rep = MergeN::replenish_inlet_recv(inlet_idx, inlet.clone()).boxed();
-                    remaining_inlets.push(rep);
-                    // remaining_targets.insert(idx, rep);
-                    tracing::info!(nr_available_inlets=%remaining_inlets.len(), "4.1.active_inlets replenished.");
-                }
-            }
-
-            active_inlets = remaining_inlets;
-            tracing::info!(nr_remaining=%active_inlets.len(), %is_active, ">>>> loop bottom <<<<");
         }
         // loop {
         //     tokio::select! {
