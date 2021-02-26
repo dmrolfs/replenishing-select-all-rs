@@ -1,9 +1,9 @@
 use rand::Rng;
 use replenishing::telemetry::{get_subscriber, init_subscriber};
-use replenishing::{MergeN, Stage};
+use replenishing::{MergeN, MergeMsg, Stage};
 use std::fmt;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 #[tokio::main]
@@ -21,9 +21,17 @@ async fn main() {
 
     let (tx_merge, mut rx_merge) = mpsc::channel(8);
 
-    let mut merge = MergeN::new("merge", merge_inlets, tx_merge);
+    let (mut merge, tx_merge_api) = MergeN::new("merge", merge_inlets, tx_merge);
     let m = tokio::spawn(async move {
         merge.run().await;
+    });
+
+    let stop = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let (tx, rx) = oneshot::channel();
+        tx_merge_api.send(MergeMsg::Stop { tx }).expect("failed to send stop to merge");
+        let _ = rx.await;
+        tracing::warn!("STOPPED MERGE");
     });
 
     let h0 = spawn_transmission("ONES", 1..9, tx_0);
@@ -44,6 +52,8 @@ async fn main() {
 
     m.await.unwrap();
     r.await.unwrap();
+    stop.await.unwrap();
+
     tracing::info!("Done!");
 }
 
@@ -56,8 +66,8 @@ where
 {
     tokio::spawn(async move {
         for item in data.into_iter() {
-            let delay = Duration::from_millis(rand::thread_rng().gen_range(25..=50));
-            // tokio::time::sleep(delay).await;
+            let delay = Duration::from_millis(rand::thread_rng().gen_range(25..=250));
+            tokio::time::sleep(delay).await;
 
             let send_span = tracing::info_span!(
                 "introducing item to channel",
@@ -71,7 +81,7 @@ where
                 Ok(_) => tracing::info!("successfully introduced item to channel."),
                 Err(err) => {
                     tracing::error!(error=?err, "failed to introduce item to channel.");
-                    panic!(err.to_string());
+                    break;
                 }
             };
         }

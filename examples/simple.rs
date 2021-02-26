@@ -1,10 +1,8 @@
-use futures::future::{BoxFuture, Future, FutureExt};
+use futures::future::{BoxFuture, FutureExt};
 use rand::Rng;
 use replenishing::telemetry::{get_subscriber, init_subscriber};
 use std::fmt::Debug;
-use std::pin::Pin;
 use std::time::Duration;
-use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
