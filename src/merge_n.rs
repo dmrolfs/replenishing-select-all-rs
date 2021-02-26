@@ -64,11 +64,9 @@ where
         let mut targets = self.initial_targets().await;
         let outlet = &self.outlet;
 
-        let mut count: i32 = 0;
-        while !targets.is_empty() && count < 5000 {
+        while !targets.is_empty() {
             let select_targets = targets;
-            tracing::info!(nr_targets=%select_targets.len(), %count, "1.selecting from targets");
-            count += 1;
+            tracing::info!(nr_targets=%select_targets.len(), "1.selecting from targets");
 
             let (inlet_value, target_idx, remaining) = futures::future::select_all(select_targets).await;
             let (inlet_idx, value) = inlet_value;
@@ -77,7 +75,6 @@ where
             let handle_target_span = tracing::info_span!(
                 "handle selected recv target",
                 ?value,
-                %count,
                 %is_active,
                 %inlet_idx,
                 %target_idx,
