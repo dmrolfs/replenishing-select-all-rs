@@ -53,7 +53,7 @@ pub enum MergeMsg {
 ///     });
 ///
 ///     let stop = tokio::spawn(async move {
-///         tokio::time::sleep(Duration::from_millis(1000)).await;
+///         tokio::time::sleep(Duration::from_millis(500)).await;
 ///         let (tx, rx) = oneshot::channel();
 ///         tx_merge_api.send(MergeMsg::Stop { tx }).expect("failed to send stop to merge");
 ///         let _ = rx.await;
@@ -64,10 +64,11 @@ pub enum MergeMsg {
 ///     let h1 = spawn_transmission("TENS", 11..99, tx_1);
 ///     let h2 = spawn_transmission("HUNDREDS", 101..=999, tx_2);
 ///
-///     let mut count = Arc::new(Mutex::new(0));
+///     let count = Arc::new(Mutex::new(0));
+///     let r_count = count.clone();
 ///     let r = tokio::spawn(async move {
 ///         while let Some(item) = rx_merge.recv().await {
-///             let mut tally = count.lock().await;
+///             let mut tally = r_count.lock().await;
 ///             *tally += 1;
 ///             tracing::info!(%item, nr_received=%tally, "Received item");
 ///         }
@@ -81,10 +82,10 @@ pub enum MergeMsg {
 ///     r.await.unwrap();
 ///     stop.await.unwrap();
 ///
-///     let tally: i32 = count.lock().get_i32();
+///     let tally: i32 = *count.lock().await;
 ///     tracing::info!(%tally, "Done!");
-///     assert!(15 < tally);
-///     assert!(tally < 25);
+///     assert!(5 < tally);
+///     assert!(tally < 15);
 /// }
 ///
 /// fn spawn_transmission<S, I, T>(name: S, data: I, tx: mpsc::Sender<T>) -> JoinHandle<()>
